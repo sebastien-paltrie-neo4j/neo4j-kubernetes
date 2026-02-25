@@ -2,7 +2,8 @@
 
 | Version | Date | Notes |
 |:---:|:---:|---|
-| v1 | 2026-02-25 | Initial version. |
+| v2 | 2026-02-25 | Aligned diagram style with Neo4j docs (theme, colors, readability). |
+| v1 | 2026-02-25 | Initial version. Enterprise-first guide: standard setup, 443-only adaptation, simplified/dev. |
 
 > How to expose Neo4j in enterprise environments (Kubernetes, OpenShift, on‑prem, cloud).
 
@@ -33,13 +34,14 @@ Neo4j exposes two network channels. Understanding this split is key to every dec
 These two channels serve **two categories of clients** with different transports:
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'lineColor':'#546E7A','fontSize':'14px'}}}%%
 flowchart LR
     subgraph browser_clients ["Browser-based tools"]
-        browser["🌐 Neo4j Browser · Bloom · NeoDash"]
+        browser["Neo4j Browser · Bloom · NeoDash"]
     end
 
     subgraph driver_clients ["Application drivers & CLI"]
-        drivers["⚙️ Python · Java · Go · .NET · JS\n+ CLI tools (cypher-shell)"]
+        drivers["Python · Java · Go · .NET · JS\n+ CLI tools (cypher-shell)"]
     end
 
     subgraph neo ["Neo4j"]
@@ -51,10 +53,13 @@ flowchart LR
     browser -- "Bolt‑over‑WSS (queries)" --> bolt_ep
     drivers -- "Bolt TCP/TLS" --> bolt_ep
 
-    style browser fill:#e1f5fe,stroke:#0288d1
-    style drivers fill:#fff3e0,stroke:#f57c00
-    style web_ep fill:#fce4ec,stroke:#c62828
-    style bolt_ep fill:#fce4ec,stroke:#c62828
+    style browser fill:#DCEEFB,stroke:#018BFF,color:#1A1C24
+    style drivers fill:#ECEFF1,stroke:#546E7A,color:#1A1C24
+    style web_ep fill:#F5F5F5,stroke:#018BFF,color:#1A1C24
+    style bolt_ep fill:#F5F5F5,stroke:#018BFF,color:#1A1C24
+    style browser_clients fill:none,stroke:#B0BEC5,color:#546E7A
+    style driver_clients fill:none,stroke:#B0BEC5,color:#546E7A
+    style neo fill:none,stroke:#018BFF,color:#018BFF
 ```
 
 | Client category | Transport | Can go through an HTTP/L7 proxy? |
@@ -76,20 +81,21 @@ A typical enterprise Neo4j deployment needs **both** channels:
 The standard setup provides each channel its optimal path:
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'lineColor':'#546E7A','fontSize':'14px'}}}%%
 flowchart TB
     subgraph users ["Users (external or internal)"]
-        browser_user["🌐 Browser tools\n(Browser · Bloom · NeoDash)"]
+        browser_user["Browser tools\n(Browser · Bloom · NeoDash)"]
     end
 
     subgraph apps ["Applications (platform or trusted subnet)"]
-        backend["⚙️ Application drivers & CLI\n(Python · Java · Go · .NET)"]
+        backend["Application drivers & CLI\n(Python · Java · Go · .NET)"]
     end
 
     subgraph k8s ["Platform"]
         direction TB
         ing["HTTP Ingress :443"] --> rp["Neo4j Reverse Proxy\n(neo4j/neo4j-reverse-proxy)\n\nHTTP → Web · WSS → Bolt\nRewrites Bolt port → 443"]
         lb_bolt["L4 LB / ClusterIP\nTCP :7687"]
-        neo["🗄️ Neo4j\nWeb :7473/:7474\nBolt :7687"]
+        neo["Neo4j\nWeb :7473/:7474\nBolt :7687"]
 
         rp -- "HTTP :7474" --> neo
         rp -- "Bolt :7687\n(internal, for browser WSS)" --> neo
@@ -99,12 +105,15 @@ flowchart TB
     browser_user -- "HTTPS + WSS :443" --> ing
     backend -- "Bolt TCP/TLS :7687" --> lb_bolt
 
-    style browser_user fill:#e1f5fe,stroke:#0288d1
-    style backend fill:#fff3e0,stroke:#f57c00
-    style ing fill:#e0e0e0,stroke:#616161
-    style rp fill:#c8e6c9,stroke:#2e7d32
-    style lb_bolt fill:#c8e6c9,stroke:#2e7d32
-    style neo fill:#fce4ec,stroke:#c62828
+    style browser_user fill:#DCEEFB,stroke:#018BFF,color:#1A1C24
+    style backend fill:#ECEFF1,stroke:#546E7A,color:#1A1C24
+    style ing fill:#F5F5F5,stroke:#78909C,color:#1A1C24
+    style rp fill:#E3F2FD,stroke:#018BFF,color:#1A1C24
+    style lb_bolt fill:#E3F2FD,stroke:#018BFF,color:#1A1C24
+    style neo fill:#DCEEFB,stroke:#018BFF,color:#1A1C24
+    style users fill:none,stroke:#B0BEC5,color:#546E7A
+    style apps fill:none,stroke:#B0BEC5,color:#546E7A
+    style k8s fill:none,stroke:#018BFF,color:#018BFF
 ```
 
 | Path | Who | Port | Transport | Mechanism |
@@ -144,10 +153,11 @@ The Neo4j reverse proxy is an HTTP server. It routes HTTP and WebSocket traffic 
 Some enterprise networks **only allow port 443**. In this case, the standard driver path (port 7687) is blocked by the firewall. The solution: add a **dedicated L4 TCP load balancer on port 443** for application drivers.
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'lineColor':'#546E7A','fontSize':'14px'}}}%%
 flowchart LR
     subgraph external ["External / 443‑only zone"]
-        user2["🌐 Browser tools"]
-        drv["⚙️ Application drivers"]
+        user2["Browser tools"]
+        drv["Application drivers"]
     end
 
     subgraph cluster ["Platform"]
@@ -160,17 +170,19 @@ flowchart LR
     user2 -- "HTTPS + WSS :443\nneo4j.example.com" --> gw2
     gw2 --> rp3
     rp3 -- "HTTP :7474" --> neo4j_c
-    rp3 -- "Bolt TCP :7687" --> neo4j_c
+    rp3 -- "Bolt :7687" --> neo4j_c
 
     drv -- "Bolt TCP/TLS :443\nneo4j-bolt.example.com" --> tcp_lb
     tcp_lb -- "Bolt TCP :7687" --> neo4j_c
 
-    style user2 fill:#e1f5fe,stroke:#0288d1
-    style drv fill:#fff3e0,stroke:#f57c00
-    style gw2 fill:#e0e0e0,stroke:#616161
-    style rp3 fill:#c8e6c9,stroke:#2e7d32
-    style tcp_lb fill:#c8e6c9,stroke:#2e7d32
-    style neo4j_c fill:#fce4ec,stroke:#c62828
+    style user2 fill:#DCEEFB,stroke:#018BFF,color:#1A1C24
+    style drv fill:#ECEFF1,stroke:#546E7A,color:#1A1C24
+    style gw2 fill:#F5F5F5,stroke:#78909C,color:#1A1C24
+    style rp3 fill:#E3F2FD,stroke:#018BFF,color:#1A1C24
+    style tcp_lb fill:#E3F2FD,stroke:#018BFF,color:#1A1C24
+    style neo4j_c fill:#DCEEFB,stroke:#018BFF,color:#1A1C24
+    style external fill:none,stroke:#B0BEC5,color:#546E7A
+    style cluster fill:none,stroke:#018BFF,color:#018BFF
 ```
 
 | Path | Hostname | Transport | Mechanism |
@@ -194,10 +206,11 @@ flowchart LR
 When non-standard ports (7473, 7687) are acceptable — e.g., internal networks, VPN, or dev/test — the reverse proxy is not needed. Neo4j's native ports can be exposed directly.
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'lineColor':'#546E7A','fontSize':'14px'}}}%%
 flowchart LR
     subgraph clients ["Clients"]
-        b["🌐 Browser tools"]
-        d["⚙️ Drivers & CLI"]
+        b["Browser tools"]
+        d["Drivers & CLI"]
     end
 
     subgraph platform ["Platform"]
@@ -209,10 +222,12 @@ flowchart LR
     d -- "Bolt TCP :7687" --> lb
     lb --> neo
 
-    style b fill:#e1f5fe,stroke:#0288d1
-    style d fill:#fff3e0,stroke:#f57c00
-    style lb fill:#c8e6c9,stroke:#2e7d32
-    style neo fill:#fce4ec,stroke:#c62828
+    style b fill:#DCEEFB,stroke:#018BFF,color:#1A1C24
+    style d fill:#ECEFF1,stroke:#546E7A,color:#1A1C24
+    style lb fill:#E3F2FD,stroke:#018BFF,color:#1A1C24
+    style neo fill:#DCEEFB,stroke:#018BFF,color:#1A1C24
+    style clients fill:none,stroke:#B0BEC5,color:#546E7A
+    style platform fill:none,stroke:#018BFF,color:#018BFF
 ```
 
 - No reverse proxy, no Ingress — Neo4j handles TLS natively.
