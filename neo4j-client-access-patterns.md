@@ -41,7 +41,7 @@ flowchart LR
     end
 
     subgraph driver_clients ["Application drivers & CLI"]
-        drivers["Python · Java · Go · .NET · JS\n+ CLI tools (cypher-shell)"]
+        drivers["Python · Java · Go · .NET · JS<br/>+ CLI tools (cypher-shell)"]
     end
 
     subgraph neo ["Neo4j"]
@@ -84,21 +84,21 @@ The standard setup provides each channel its optimal path:
 %%{init: {'theme':'base', 'themeVariables': {'lineColor':'#546E7A','fontSize':'14px'}}}%%
 flowchart TB
     subgraph users ["Users (external or internal)"]
-        browser_user["Browser tools\n(Browser · Bloom · NeoDash)"]
+        browser_user["Browser tools<br/>(Browser · Bloom · NeoDash)"]
     end
 
     subgraph apps ["Applications (platform or trusted subnet)"]
-        backend["Application drivers & CLI\n(Python · Java · Go · .NET)"]
+        backend["Application drivers & CLI<br/>(Python · Java · Go · .NET)"]
     end
 
     subgraph k8s ["Platform"]
         direction TB
-        ing["HTTP Ingress :443"] --> rp["Neo4j Reverse Proxy\n(neo4j/neo4j-reverse-proxy)\n\nHTTP → Web · WSS → Bolt\nRewrites Bolt port → 443"]
-        lb_bolt["L4 LB / ClusterIP\nTCP :7687"]
-        neo["Neo4j\nWeb :7473/:7474\nBolt :7687"]
+        ing["HTTP Ingress :443"] --> rp["Neo4j Reverse Proxy<br/>(neo4j/neo4j-reverse-proxy)<br/><br/>HTTP → Web · WSS → Bolt<br/>Rewrites Bolt port → 443"]
+        lb_bolt["L4 LB / ClusterIP<br/>TCP :7687"]
+        neo["Neo4j<br/>Web :7473/:7474<br/>Bolt :7687"]
 
         rp -- "HTTP :7474" --> neo
-        rp -- "Bolt :7687\n(internal, for browser WSS)" --> neo
+        rp -- "Bolt :7687 (internal, for browser WSS)" --> neo
         lb_bolt -- "Bolt TCP :7687" --> neo
     end
 
@@ -161,18 +161,18 @@ flowchart LR
     end
 
     subgraph cluster ["Platform"]
-        gw2["HTTP Ingress :443\n(neo4j.example.com)"]
-        rp3["Neo4j Reverse Proxy\n(HTTP + Bolt port rewriting)"]
-        tcp_lb["L4 TCP LB :443\n(neo4j-bolt.example.com)"]
-        neo4j_c["Neo4j\n:7474 · :7473 · :7687"]
+        gw2["HTTP Ingress :443<br/>(neo4j.example.com)"]
+        rp3["Neo4j Reverse Proxy<br/>(HTTP + Bolt port rewriting)"]
+        tcp_lb["L4 TCP LB :443<br/>(neo4j-bolt.example.com)"]
+        neo4j_c["Neo4j<br/>:7474 · :7473 · :7687"]
     end
 
-    user2 -- "HTTPS + WSS :443\nneo4j.example.com" --> gw2
+    user2 -- "HTTPS + WSS :443 (neo4j.example.com)" --> gw2
     gw2 --> rp3
     rp3 -- "HTTP :7474" --> neo4j_c
     rp3 -- "Bolt :7687" --> neo4j_c
 
-    drv -- "Bolt TCP/TLS :443\nneo4j-bolt.example.com" --> tcp_lb
+    drv -- "Bolt TCP/TLS :443 (neo4j-bolt.example.com)" --> tcp_lb
     tcp_lb -- "Bolt TCP :7687" --> neo4j_c
 
     style user2 fill:#DCEEFB,stroke:#018BFF,color:#1A1C24
@@ -214,8 +214,8 @@ flowchart LR
     end
 
     subgraph platform ["Platform"]
-        lb["LoadBalancer\n:7473 (HTTPS) · :7687 (Bolt)"]
-        neo["Neo4j\n:7473 · :7687"]
+        lb["LoadBalancer<br/>:7473 (HTTPS) · :7687 (Bolt)"]
+        neo["Neo4j<br/>:7473 · :7687"]
     end
 
     b -- "HTTPS :7473" --> lb
