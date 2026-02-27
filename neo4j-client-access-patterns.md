@@ -2,6 +2,7 @@
 
 | Version | Date | Notes |
 |:---:|:---:|---|
+| v3 | 2026-02-27 | Restructured §6/§7 (TLS, cluster). Fixed §4 diagram (browser needs both :7473 + :7687). Added ports reference. Renamed §1. |
 | v2 | 2026-02-25 | Aligned diagram style with Neo4j docs (theme, colors, readability). |
 | v1 | 2026-02-25 | Initial version. Enterprise-first guide: standard setup, 443-only adaptation, simplified/dev. |
 
@@ -18,11 +19,12 @@ Neo4j uses two access channels, each requiring its own network path:
 | Standard enterprise setup (both paths) | [Enterprise standard setup](#2--enterprise-standard-setup) |
 | Strict 443-only networks | [443-only adaptation](#3--adaptation-strict-443-only-for-all-clients) |
 | Internal / dev (simplified) | [Simplified setup](#4--simplified-setup-internal--dev--test) |
-| TLS, cluster routing, URI schemes | [Operational notes](#6--operational-notes) |
+| TLS & certificate configuration | [TLS & certificates](#6--tls--certificate-configuration) |
+| Cluster routing & security | [Cluster considerations](#7--cluster-considerations) |
 
 ---
 
-## 1 — How clients connect to Neo4j
+## 1 — Protocol architecture
 
 Neo4j exposes two network channels. Understanding this split is key to every decision in this document.
 
@@ -30,6 +32,8 @@ Neo4j exposes two network channels. Understanding this split is key to every dec
 |---------|:---:|---|---|
 | **Web** | 7474 (HTTP) / 7473 (HTTPS) | HTTP(S) | Neo4j Browser, Bloom, NeoDash |
 | **Bolt** | 7687 | Bolt binary over TCP | All official drivers (Python, Java, Go, .NET, JS), CLI tools |
+
+> Neo4j uses additional ports for backup, cluster communication, and monitoring. This document focuses on **client access** ports only. For the complete port reference, see [Neo4j Ports](https://neo4j.com/docs/operations-manual/current/configuration/ports/).
 
 These two channels serve **two categories of clients** with different transports:
 
@@ -218,7 +222,8 @@ flowchart LR
         neo["Neo4j<br/>:7473 · :7687"]
     end
 
-    b -- "HTTPS :7473" --> lb
+    b -- "HTTPS :7473 (UI)" --> lb
+    b -- "Bolt‑over‑WSS :7687 (queries)" --> lb
     d -- "Bolt TCP :7687" --> lb
     lb --> neo
 
@@ -231,7 +236,8 @@ flowchart LR
 ```
 
 - No reverse proxy, no Ingress — Neo4j handles TLS natively.
-- Browser tools connect on `:7473` (HTTPS), drivers on `:7687` (Bolt TCP).
+- Browser tools need **both** `:7473` (HTTPS for the UI) **and** `:7687` (Bolt‑over‑WSS for queries). Both ports must be reachable.
+- Drivers connect on `:7687` (Bolt TCP).
 - Simplest possible setup, suitable when edge governance is not required.
 
 ---
@@ -242,13 +248,46 @@ flowchart LR
 |---|---|---|
 | **Standard enterprise** (§2) | Reverse proxy on 443 | Bolt TCP on 7687 (ClusterIP / LB) |
 | **Strict 443-only** (§3) | Reverse proxy on 443 | L4 TCP LB on 443 |
-| **Internal / dev** (§4) | Direct HTTPS on 7473 | Direct Bolt TCP on 7687 |
+| **Internal / dev** (§4) | Direct HTTPS on 7473 + Bolt‑WSS on 7687 | Direct Bolt TCP on 7687 |
 
 ---
 
-## 6 — Operational notes
+## 6 — TLS & certificate configuration
 
-### 6.1 — Advertised addresses (cluster mode)
+### 6.1 — TLS termination per setup
+
+Where TLS is terminated depends on the access pattern:
+
+| Segment | TLS option |
+|---|---|
+| Client → Edge (browser path, §2/§3) | TLS termination at Ingress / edge |
+| Edge → Reverse proxy | Re-encrypt or plain HTTP (internal network) |
+| Client → Neo4j (driver path, §2/§3) | `bolt+s://` (CA-verified) or `bolt+ssc://` (self-signed) |
+| Client → Neo4j (direct, §4) | Neo4j native TLS (`server.bolt.tls_level`, `server.https.enabled`) |
+
+In production, `server.bolt.tls_level` = `REQUIRED` is recommended (ref: [Neo4j Security Benchmark](https://assets.neo4j.com/Official-Materials/Neo4j%2BSecurity%2BBenchmark_5.pdf)).
+
+For full details on configuring SSL certificates, key stores, and trust stores, see [Neo4j SSL/TLS framework](https://neo4j.com/docs/operations-manual/current/security/ssl-framework/).
+
+### 6.2 — Driver URI schemes
+
+The URI scheme determines whether the driver uses TLS and how it verifies the certificate:
+
+| URI scheme | TLS | Certificate verification | Typical use |
+|---|---|---|---|
+| `neo4j://` / `bolt://` | No | — | Dev / local only |
+| `neo4j+ssc://` / `bolt+ssc://` | Yes | None (self-signed accepted) | Internal with auto-generated certs |
+| `neo4j+s://` / `bolt+s://` | Yes | Full CA verification | Production |
+
+> `neo4j://` schemes enable client-side routing (cluster-aware). `bolt://` schemes connect to a single server. In cluster mode, prefer `neo4j+s://`.
+
+---
+
+## 7 — Cluster considerations
+
+This section covers what changes when moving from a standalone Neo4j instance to a cluster deployment.
+
+### 7.1 — Advertised addresses & routing tables
 
 In a Neo4j **cluster**, drivers receive a **routing table** with the addresses of all members (via `server.bolt.advertised_address`). If those addresses are unreachable from the client network, connections fail after the initial handshake.
 
@@ -259,34 +298,21 @@ In a Neo4j **cluster**, drivers receive a **routing table** with the addresses o
 - DNS entries pointing to each pod's external IP
 - Neo4j headless service (`neo4j-cluster-headless-service` chart) for intra-cluster clients
 
-### 6.2 — TLS
+For detailed configuration of routing policies, server groups, and multi-datacenter routing, see [Cluster routing & load balancing](https://neo4j.com/docs/operations-manual/current/clustering/setup/routing/).
 
-| Segment | TLS option |
-|---|---|
-| Client → Edge (browser path) | TLS termination at edge |
-| Edge → Reverse proxy | Re-encrypt or plain HTTP (internal) |
-| Client → Neo4j (driver path) | `bolt+s://` (verified) or `bolt+ssc://` (self-signed) |
-| Client → Neo4j (direct / dev) | Neo4j native TLS (`server.bolt.tls_level`, `server.https.enabled`) |
+### 7.2 — WSS gives full database access
 
-In production, `server.bolt.tls_level` = `REQUIRED` is recommended (ref: [Neo4j Security Benchmark](https://assets.neo4j.com/Official-Materials/Neo4j%2BSecurity%2BBenchmark_5.pdf)).
+Browser-based tools connecting via WebSocket have the **same query capabilities** as a direct Bolt connection. Access control relies entirely on **Neo4j authentication and role-based access**. Treat browser access like driver access from a security standpoint — this is especially important in cluster deployments where browser tools may reach any cluster member through the routing table.
 
-**Driver URI schemes** — the scheme determines whether the driver uses TLS and how it verifies the certificate:
+### 7.3 — Additional cluster ports
 
-| URI scheme | TLS | Certificate verification | Typical use |
-|---|---|---|---|
-| `neo4j://` / `bolt://` | No | — | Dev / local only |
-| `neo4j+ssc://` / `bolt+ssc://` | Yes | None (self-signed accepted) | Internal with auto-generated certs |
-| `neo4j+s://` / `bolt+s://` | Yes | Full CA verification | Production |
+Client access patterns (§2–§4) only require the ports documented above. However, a Neo4j cluster uses **additional internal ports** for inter-node communication (discovery, transaction replication, routing). These ports must be open **between cluster members** but should not be exposed to clients.
 
-> `neo4j://` schemes enable client-side routing (cluster-aware). `bolt://` schemes connect to a single server. In cluster mode, prefer `neo4j+s://`.
-
-### 6.3 — WSS gives full database access
-
-Browser-based tools connecting via WebSocket have the **same query capabilities** as a direct Bolt connection. Access control relies entirely on **Neo4j authentication and role-based access**. Treat browser access like driver access from a security standpoint.
+For the complete port matrix including backup (:6362), cluster, and monitoring ports, see [Neo4j Ports](https://neo4j.com/docs/operations-manual/current/configuration/ports/).
 
 ---
 
-## 7 — Appendix: TLS SNI routing (infrastructure pattern — out of Neo4j scope)
+## 8 — Appendix: TLS SNI routing (infrastructure pattern — out of Neo4j scope)
 
 TLS SNI routing uses a **single port (443)** and routes TCP traffic by hostname (from the TLS ClientHello), before decrypting. Some enterprises use this (F5, HAProxy stream, Envoy) for other TCP services.
 
@@ -297,7 +323,7 @@ It is a valid infrastructure technique but **not described in Neo4j's official g
 - **No Bolt port rewriting.** Neo4j advertises port 7687 in handshake responses. Without the reverse proxy, browser clients will try to reconnect on 7687.
 - **Two hostnames required.** Same as the 443-only setup (§3) — one per protocol. The difference: SNI uses TLS passthrough at the edge, while §3 uses standard Ingress + L4 LB.
 - **Loss of L7 governance.** SNI requires TLS passthrough — no WAF, no HTTP-level logs, no header manipulation at the edge.
-- **Cluster advertised addresses.** Same constraints as the driver path (§6.1).
+- **Cluster advertised addresses.** Same constraints as the driver path (§7.1).
 
 | Aspect | TLS SNI (infra) | 443-only setup (§3) |
 |---|---|---|
@@ -312,12 +338,13 @@ TLS SNI routing **can** work for Neo4j but requires solving Bolt port rewriting 
 
 ---
 
-## 8 — References
+## 9 — References
 
 | Topic | Link |
 |---|---|
+| Neo4j ports (complete reference) | https://neo4j.com/docs/operations-manual/current/configuration/ports/ |
 | Reverse proxy chart & Ingress | https://neo4j.com/docs/operations-manual/current/kubernetes/accessing-neo4j-ingress/ |
-| Ports & advertised addresses | https://neo4j.com/docs/operations-manual/current/configuration/ports/ |
+| Network connectors configuration | https://neo4j.com/docs/operations-manual/current/configuration/connectors/ |
 | Bolt protocol (TCP + WebSocket) | https://neo4j.com/docs/bolt/current/bolt/ |
 | JS driver in browser (WebSockets) | https://neo4j.com/docs/javascript-manual/current/browser-websockets/ |
 | SSL/TLS framework | https://neo4j.com/docs/operations-manual/current/security/ssl-framework/ |
